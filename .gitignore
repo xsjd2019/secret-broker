@@ -1,0 +1,14 @@
+node_modules/
+dist/
+*.log
+.DS_Store
+coverage/
+.vitest/
+
+# Defensive: never commit ambient credentials, even by accident
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.envrc

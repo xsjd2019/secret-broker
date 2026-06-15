@@ -1,0 +1,45 @@
+{
+  "name": "secret-broker",
+  "version": "0.1.0",
+  "description": "Local secret broker for AI agents. Keychain-backed, AES-256-GCM at-rest, deliver-by-reference. No server, no plaintext in shell history.",
+  "type": "module",
+  "bin": {
+    "secret": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "skills",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  },
+  "keywords": [
+    "secret",
+    "vault",
+    "keychain",
+    "ai-agent",
+    "credential",
+    "broker",
+    "aes-256-gcm",
+    "claude-code",
+    "mcp",
+    "security"
+  ]
+}
