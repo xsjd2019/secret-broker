@@ -1,18 +1,18 @@
 # secret-broker
 
-> Local secret broker for AI agents. macOS Keychain-backed, AES-256-GCM at-rest, deliver-by-reference. No server, no plaintext in shell history.
+> AIエージェント向けのローカル秘密ブローカー。macOS Keychain 裏付け、AES-256-GCM 保存時暗号化、参照渡し。サーバー不要、シェル履歴に平文を残さない。
 
-When an AI agent (Claude Code, Cursor, etc.) needs an API token, you don't want to type it into a chat or paste it into a `.env` that lingers in `git status`. `secret-broker` lets the agent **request** the secret, prompts you with a native macOS dialog (hidden input), encrypts the value to disk, and gives the agent back a **reference** — never the raw value in chat, shell history, logs, or argv.
+AIエージェント（Claude Code・Cursor 等）にAPIトークンを渡したいけど、チャットに直書きしたくない・`.env` ファイルが `git status` に出てきてヒヤッとしたくない、そういう時のためのツール。エージェントが秘密を **「要求 (request)」** すると、macOS のネイティブダイアログ（パスワード入力欄）が表示され、入力値をディスクに暗号化保存し、エージェントには **「参照」だけ** を返します。生の値はチャット・シェル履歴・ログ・argv のどこにも出ません。
 
 ```
 agent: secret request CLOUDFLARE_API_TOKEN --why "deploy worker"
             │
             ▼
-  ┌───────────────────────┐         macOS native dialog
-  │  CLOUDFLARE_API_TOKEN  │  ◀──── (hidden input, owner's GUI)
+  ┌───────────────────────┐         macOSネイティブダイアログ
+  │  CLOUDFLARE_API_TOKEN  │  ◀──── (隠し入力、オーナーのGUI)
   │  用途: deploy worker   │
   │  [          ******** ] │
-  │      [Cancel] [OK]     │
+  │     [キャンセル] [OK]   │
   └───────────────────────┘
             │
             ▼
@@ -20,176 +20,176 @@ agent: secret request CLOUDFLARE_API_TOKEN --why "deploy worker"
             │
             ▼
 agent: secret run CLOUDFLARE_API_TOKEN -- wrangler deploy
-       └──── value lives only in the spawned child's env, never on disk/stdout ────┘
+       └──── 値は子プロセスのenvにだけ存在、ディスク/stdoutには絶対出ない ────┘
 ```
 
 ---
 
-## Why not just `.env`?
+## なぜ `.env` じゃダメなのか
 
 | | `.env` | `secret-broker` |
 |---|---|---|
-| Plaintext on disk | yes (single point of failure) | **no — AES-256-GCM, key in Keychain** |
-| `.gitignore` discipline | required every project | **not needed** (storage is outside the repo) |
-| Per-project scope | manual | **automatic** (git root = namespace) |
-| Agent sees value | yes (reads file) | **no** — agent gets a reference; value is env-injected only |
-| Survives shell history dumps | no | yes (input via GUI dialog, no echo) |
+| ディスク上の平文 | あり（単一障害点） | **なし — AES-256-GCM、鍵はKeychain** |
+| `.gitignore` の規律 | プロジェクトごとに毎回必要 | **不要**（保管先はリポ外） |
+| プロジェクト単位のスコープ | 手動管理 | **自動**（git root = namespace） |
+| エージェントが値を見られるか | はい（ファイルを読む） | **いいえ** — エージェントは参照しか持たず、値はenv経由で透過注入のみ |
+| シェル履歴流出に耐えるか | 弱い | 強い（GUIダイアログ入力、echoなし） |
 
 ---
 
-## Install
+## インストール
 
 ```bash
-npm install -g secret-broker      # exposes `secret` on PATH
+npm install -g secret-broker      # `secret` コマンドが PATH に入る
 ```
 
-Or run directly without installing globally:
+グローバルに入れずに使う場合:
 
 ```bash
 npx secret-broker <command>
 ```
 
-Requirements: macOS, Node ≥ 20, GUI session for the dialog (SSH-only sessions will need TTY fallback support — see [Roadmap](#roadmap)).
+要件: macOS、Node 20以上、GUIセッション（ダイアログ表示用。SSHのみのセッションでは TTY フォールバックが必要 — [ロードマップ](#ロードマップ) 参照）。
 
 ---
 
-## Quick start
+## クイックスタート
 
 ```bash
-# 1) Owner: store a secret interactively
+# 1) オーナー: 秘密を対話的に登録
 secret set CLOUDFLARE_API_TOKEN
-# (native dialog appears, hidden input)
+# (ネイティブダイアログが出て、隠し入力で値を入れる)
 
-# 2) Use it without ever exposing the value
+# 2) 値を露出させずに使う
 secret run CLOUDFLARE_API_TOKEN -- wrangler deploy
 
-# 3) Inspect — names only, never values
+# 3) 確認 — 名前だけ表示、値は決して出ない
 secret ls
 
-# 4) Migrate an existing .env into the broker, then delete the file
+# 4) 既存の .env を取り込んで元ファイルを削除
 secret import-env .env
-rm .env  # plaintext is no longer needed
+rm .env  # もう平文は不要
 ```
 
-For an AI agent's usage pattern, see [`skills/secure-secrets.md`](skills/secure-secrets.md).
+AIエージェント側の使い方は [`skills/secure-secrets.md`](skills/secure-secrets.md) を参照。
 
 ---
 
-## Commands
+## コマンド一覧
 
-| Command | Purpose |
+| コマンド | 用途 |
 |---|---|
-| `secret request <NAME> --why "<text>"` | Agent asks owner for a secret via dialog |
-| `secret set <NAME>` | Owner stores a secret via dialog |
-| `secret run <NAME[,N2,…]> -- <cmd>` | Exec `<cmd>` with secret(s) injected as env vars |
-| `secret get <NAME>` | Write a mode-600 temp file, print the path |
-| `secret ls [--json]` | List secret names in the current namespace |
-| `secret rm <NAME>` | Delete a secret |
-| `secret import-env <path>` | Bulk import a `.env`-style file |
-| `secret help` / `--version` | Help / version |
+| `secret request <NAME> --why "<text>"` | エージェントがダイアログでオーナーに値を要求 |
+| `secret set <NAME>` | オーナーがダイアログで自分で登録 |
+| `secret run <NAME[,N2,…]> -- <cmd>` | 秘密(複数可)をenvに注入して `<cmd>` を実行 |
+| `secret get <NAME>` | mode 0600 の一時ファイルに書き出してパスを返す |
+| `secret ls [--json]` | 現在のnamespaceの秘密名一覧 |
+| `secret rm <NAME>` | 秘密を削除 |
+| `secret import-env <path>` | `.env` 形式のファイルを一括取り込み |
+| `secret help` / `--version` | ヘルプ / バージョン |
 
-Exit codes:
-- `0` success
-- `1` error (not found, decrypt failed, etc.)
-- `2` user cancelled the dialog
-
----
-
-## How it works
-
-**Three primitives:**
-
-1. **Vault Master Key (VMK)** — a 32-byte AES-256 key generated on first use and stored in the **macOS Keychain** under service `secret-broker-vmk`. Only the broker CLI ever touches it. Agents access secrets only via the CLI, never the Keychain directly.
-2. **AES-256-GCM at-rest** — every secret is encrypted with `v2:` format: `base64(VMKFingerprint(4) || iv(12) || ciphertext || tag(16))`. Each ciphertext is **AAD-bound** to its `namespace:name` so a blob can't be silently relocated to another secret slot.
-3. **Deliver-by-reference** — agents call `secret run` (env injection, no disk artifact) or `secret get` (mode-0600 temp file, auto-swept after 5 min). The value never reaches stdout, argv, the shell history, or the agent's chat context.
-
-**Namespace = git root (or cwd).** Each project's secrets live in their own directory hashed from the absolute path, so secrets stored under `/my/project-a` are invisible to an agent running in `/my/project-b`.
-
-**Defense in depth:**
-- VMK fingerprint embedded in ciphertext → clear error when the key has rotated, instead of a generic auth-tag mismatch.
-- AAD = `<ns>:<name>:v2` → re-binding a ciphertext to a different name fails authentication.
-- File locks prevent concurrent dialogs for the same name from racing.
-- Janitor sweeps stale `get` temp files older than 5 minutes (defensive pattern-matched: only files matching `<NAME>.<unixMs>.<pid>` are eligible for cleanup).
+終了コード:
+- `0` 成功
+- `1` エラー（不在 / 復号失敗など）
+- `2` ユーザーがダイアログをキャンセル
 
 ---
 
-## Security model — what it does and does not protect
+## 仕組み
 
-**It protects against:**
-- Pasting plaintext into shell history / terminal scrollback / chat.
-- Plaintext `.env` files lingering in the repo and getting committed accidentally.
-- An agent prompt-injection that tries to exfiltrate the secret by `echo`ing or logging the value — agents only ever receive references.
-- Reading the encrypted file alone (you also need the Keychain VMK).
-- Reading the Keychain VMK alone (you also need the encrypted file).
+**3つの核となるプリミティブ:**
 
-**It does NOT protect against:**
-- A fully compromised local user account. If the attacker runs as you, they can run the CLI and read the secret. Same threat model as `.env` or any local credential store.
-- A malicious local process spoofing the dialog (no verification code yet — see [Roadmap](#roadmap)).
-- Memory inspection of the running process during decrypt. (Pre-`run`, the value is in process memory for a few milliseconds before being passed to the child env.)
-- Network-level interception of the secret's eventual use. The broker delivers to your tool; what your tool does with it is your tool's problem.
+1. **マスター鍵（VMK）** — 32バイトの AES-256 鍵を初回利用時に生成し、**macOS Keychain** のサービス `secret-broker-vmk` に保管。ブローカー CLI のみが触れる。エージェントが直接 Keychain にアクセスすることはなく、必ず CLI 越し。
+2. **AES-256-GCM 保存時暗号化** — すべての秘密を `v2:` 形式で暗号化: `base64(VMKフィンガープリント(4) || iv(12) || ciphertext || tag(16))`。各 ciphertext は **`namespace:name` で AAD バインド** されているため、暗号化blobを別の秘密スロットに付け替えても復号失敗する。
+3. **参照渡し（deliver-by-reference）** — エージェントは `secret run`（env注入、ディスク残骸なし）か `secret get`（mode 0600 一時ファイル、5分で自動掃除）を使う。値が stdout・argv・シェル履歴・チャットコンテキストに出ることは一切ない。
 
-**Out of scope** (intentionally — see [`docs/DESIGN.md`](docs/DESIGN.md)):
-- Token issuance / minting (we supply user-provided secrets, we do not generate them from a master credential).
-- Cross-machine / cross-device sync. macOS only, same machine only.
-- TTL / leases / killswitch.
-- Audit log UI.
+**Namespace = git root（無ければ cwd）。** 各プロジェクトの秘密は絶対パスをハッシュ化したディレクトリ配下に隔離される。`/my/project-a` 下に保存した秘密は、`/my/project-b` で動くエージェントからは存在自体が見えない。
 
-If you need any of those, look at [Bitwarden Agent Access](https://github.com/bitwarden/agent-access) or [joelhooks/agent-secrets](https://github.com/joelhooks/agent-secrets) — they cover the gaps with different trade-offs.
+**多層防御:**
+- VMK フィンガープリントを ciphertext に埋め込み → 鍵がローテート/再生成された時に、汎用的な auth-tag mismatch ではなく明示的なエラーが出る。
+- AAD = `<ns>:<name>:v2` → ciphertext を別の名前に付け替えると認証失敗。
+- ファイルロックで同名の秘密に対する同時ダイアログ表示を防ぐ。
+- ジャニター（janitor）が 5分以上経った `get` の一時ファイルを掃除（パターンマッチ防御: `<NAME>.<unixMs>.<pid>` 形式のファイルしか対象にしない）。
 
 ---
 
-## Storage layout
+## セキュリティモデル — 何を守って何を守らないか
+
+**守れるもの:**
+- シェル履歴 / ターミナルスクロールバック / チャットへの平文貼り付け。
+- リポ内に残った `.env` が誤コミットされる事故。
+- エージェントへのプロンプトインジェクションで「秘密を echo / ログ出力させる」攻撃 — エージェントは参照しか受け取らない。
+- 暗号化ファイル**だけ**の流出（復号には Keychain の VMK も必要）。
+- Keychain の VMK **だけ**の流出（復号には暗号化ファイルも必要）。
+
+**守れないもの:**
+- ローカルユーザーアカウントの完全な乗っ取り。攻撃者があなたとして実行できるなら、CLI を起動して値を取得できる。これは `.env` でもどんなローカル秘密管理でも同じ脅威モデル。
+- 悪意あるローカルプロセスによるダイアログ偽装（認証コード未実装 — [ロードマップ](#ロードマップ) 参照）。
+- 復号中のプロセスのメモリ読み取り。（`secret run` の前後数ミリ秒、値は親プロセスメモリ上に存在してから子プロセスのenvに渡される）
+- 秘密を「使った後」のネットワーク傍受。ブローカーはツールに渡すまで責任を持つ。その先はツールの責任。
+
+**意図的にスコープ外** （[`docs/DESIGN.md`](docs/DESIGN.md) 参照）:
+- トークンの発行 / mint（ユーザー提供の値を保管するだけで、マスター資格情報から最小権限トークンを発行する機能は持たない）。
+- マシン間 / デバイス間同期。macOSのみ、同一マシンのみ。
+- TTL / lease / killswitch。
+- 監査ログUI。
+
+これらが必要なら、[Bitwarden Agent Access](https://github.com/bitwarden/agent-access) や [joelhooks/agent-secrets](https://github.com/joelhooks/agent-secrets) を見てください。違うトレードオフで同じ領域をカバーしています。
+
+---
+
+## 保管ファイル配置
 
 ```
 ~/.config/secret-broker/
-└── <namespace-hash>/           # 16-char sha256 prefix of git root or cwd
+└── <namespace-hash>/           # git root or cwd を sha256 した先頭16文字
     ├── CLOUDFLARE_API_TOKEN     # AES-GCM ciphertext, mode 0600
     ├── LINE_CHANNEL_TOKEN
-    ├── .tmp/                    # `secret get` tmp files, swept after 5 min
-    └── .locks/                  # request locks (auto-reaped if pid dies)
+    ├── .tmp/                    # `secret get` の一時ファイル、5分で自動掃除
+    └── .locks/                  # 要求ロック（pid死亡時は自動回収）
 ```
 
-Keychain entry: service `secret-broker-vmk`, account `<your username>`, value = base64(32 random bytes).
+Keychain エントリ: サービス `secret-broker-vmk`、アカウント `<unix username>`、値 = base64(ランダム32バイト)。
 
 ---
 
-## Using from a Claude Code agent
+## Claude Code から使う
 
-Drop [`skills/secure-secrets.md`](skills/secure-secrets.md) into your project (or globally) and the agent will know how to use the broker correctly:
+[`skills/secure-secrets.md`](skills/secure-secrets.md) をプロジェクト（またはグローバル）に置けば、エージェントが正しい使い方を理解します:
 
-- Never echo / cat / print secret values.
-- Use `secret run NAME -- cmd` first.
-- Fall back to `secret get NAME` (file path) only when env injection is impossible.
-- On dialog cancellation, escalate to a different approach with the owner, don't loop.
-
----
-
-## Roadmap
-
-Things explicitly punted from v1 but worth considering for later versions:
-
-- **Anti-phishing verification code** — show a 4-digit code in both the dialog and the calling CLI to prevent rogue local processes from showing fake dialogs.
-- **TTL / killswitch** — `secret revoke --all` to wipe all decryptable secrets instantly when an agent goes rogue.
-- **Linux / Windows ports** — abstract the dialog (`zenity` / PowerShell) and Keychain (`libsecret` / Credential Manager).
-- **1Password / Bitwarden fallback** — `secret get` looks in OS Keychain first, then in 1P/BW vault for team-shared values.
+- 秘密値を echo / cat / print しない。
+- まず `secret run NAME -- cmd` を試す。
+- env 注入が不可能な場合のみ `secret get NAME`（パスファイル）にフォールバック。
+- ダイアログがキャンセルされたら、ループせず別アプローチをオーナーに相談する。
 
 ---
 
-## Development
+## ロードマップ
+
+v1 で意図的に保留したが、将来検討する価値があるもの:
+
+- **アンチフィッシング認証コード** — ダイアログとCLI双方に4桁コードを表示してマッチさせる。悪意あるローカルプロセスによる偽ダイアログを防ぐ。
+- **TTL / killswitch** — エージェントが暴走した時に `secret revoke --all` で全復号可能秘密を即時無効化。
+- **Linux / Windows 移植** — ダイアログ（`zenity` / PowerShell）と Keychain（`libsecret` / Credential Manager）を抽象化。
+- **1Password / Bitwarden フォールバック** — `secret get` が OS Keychain → 1P/BW vault の順に探索、チーム共有値に対応。
+
+---
+
+## 開発
 
 ```bash
-git clone https://github.com/<you>/secret-broker.git
+git clone https://github.com/xsjd2019/secret-broker.git
 cd secret-broker
 npm install
-npm test                  # 80 tests
+npm test                  # 80テスト
 npm run build
 npm run typecheck
 ```
 
-The codebase is small (under 1000 lines), zero runtime dependencies, and structured to be easy to fork. Each module has a focused unit test file — see `test/`.
+コードベースは小さい（合計1000行未満）、本番依存ゼロ、各モジュールが個別のテストファイルを持つ構造です。`test/` を見てください。
 
 ---
 
-## License
+## ライセンス
 
-MIT — use it, fork it, distribute it. See [`LICENSE`](LICENSE).
+MIT — 自由に使い・fork し・配布してください。詳細は [`LICENSE`](LICENSE)。
