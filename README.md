@@ -77,16 +77,51 @@ AIエージェント側の使い方は [`skills/secure-secrets.md`](skills/secur
 
 ## コマンド一覧
 
-| コマンド | 用途 |
-|---|---|
-| `secret request <NAME> --why "<text>"` | エージェントがダイアログでオーナーに値を要求 |
-| `secret set <NAME>` | オーナーがダイアログで自分で登録 |
-| `secret run <NAME[,N2,…]> -- <cmd>` | 秘密(複数可)をenvに注入して `<cmd>` を実行 |
-| `secret get <NAME>` | mode 0600 の一時ファイルに書き出してパスを返す |
-| `secret ls [--json]` | 現在のnamespaceの秘密名一覧 |
-| `secret rm <NAME>` | 秘密を削除 |
-| `secret import-env <path>` | `.env` 形式のファイルを一括取り込み |
-| `secret help` / `--version` | ヘルプ / バージョン |
+**`secret run` を使う**のが基本動線。`secret get` は **env注入が不可能なときだけ**の例外路。両者を並列に扱わないでください。
+
+| コマンド | 用途 | いつ使う |
+|---|---|---|
+| `secret run <NAME[,N2,…]> -- <cmd>` | 秘密(複数可)をenvに注入して `<cmd>` を実行 | **既定。値が必要な時はまずこれ** |
+| `secret request <NAME> --why "<text>"` | エージェントがダイアログでオーナーに値を要求 | エージェント側からの初回入力 |
+| `secret set <NAME>` | オーナーがダイアログで自分で登録 | 人間側からの初回入力 |
+| `secret ls [--json]` | 現在のnamespaceの秘密名一覧 | 何が入ってるか確認したい時 |
+| `secret rm <NAME>` | 秘密を削除 | 不要になった or ローテーション後 |
+| `secret import-env <path>` | `.env` 形式のファイルを一括取り込み | 既存`.env`からの移行 |
+| `secret get <NAME>` | mode 0600 の一時ファイルに書き出してパスを返す | **例外路:** tool が file path しか受け付けない時のみ |
+| `secret help` / `--version` | ヘルプ / バージョン | |
+
+### `secret run` で大体カバーできる例
+
+```bash
+# tool が env から読む
+secret run CLOUDFLARE_API_TOKEN -- wrangler deploy
+
+# tool が stdin から読む
+secret run API_KEY -- sh -c 'printf "%s" "$API_KEY" | wrangler secret put API_KEY'
+
+# tool が HTTP header に必要
+secret run GH_TOKEN -- sh -c 'curl -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/user'
+
+# 複数同時注入
+secret run LINE_CHANNEL_ACCESS_TOKEN,LINE_CHANNEL_SECRET -- node ./scripts/push.mjs
+
+# 値をクリップボードに（ブラウザ画面のログイン欄に貼る等）
+secret run API_KEY -- sh -c 'printf "%s" "$API_KEY" | pbcopy'
+```
+
+どのケースも値はチャイルドプロセスのメモリにしか存在せず、ディスク・stdout・argv・チャットコンテキストに一切現れません。
+
+### `secret get` が要る唯一の状況
+
+ツールが**「ファイルパス」しか受け付けない**場合だけ。例: `gcloud auth activate-service-account --key-file=<path>`。
+
+```bash
+KEY_FILE=$(secret get GCP_SERVICE_ACCOUNT)
+gcloud auth activate-service-account --key-file="$KEY_FILE"
+rm -f "$KEY_FILE"   # 使い終わったらすぐ削除
+```
+
+`get` のファイルを `cat` / `head` / `tail` で読むのは禁止（値が stdout に出る）。パスをツールに渡すだけです。
 
 終了コード:
 - `0` 成功

@@ -7,11 +7,12 @@ description: Use whenever you need an API token, key, password, or any secret to
 
 You are working with an owner who has installed [secret-broker](https://github.com/) (a local secret broker). When a task needs an API token, key, password, or other credential, **never ask for the value in chat** and **never read it from a `.env` file**. Use the broker.
 
-## Three rules — non-negotiable
+## Four rules — non-negotiable
 
 1. **Never put a secret value in chat, stdout, stderr, logs, or any file the user can later open and see.** Not even abbreviated. Not even "for confirmation". The secret stays inside the broker → child process boundary, end of story.
-2. **Use `secret run` as your first choice.** Env injection leaves no readable artifact.
-3. **On user cancellation (exit code 2), stop and escalate to the user via chat.** Don't retry the dialog; the owner just told you "no". Explain what you needed and ask how to proceed.
+2. **`secret run NAME -- <cmd>` is THE path.** Env injection leaves no readable artifact. If a tool reads `process.env`, accepts a header, or can pipe from stdin (`pbcopy`, `curl`, `wrangler secret put`, etc.), use `run`. `get` exists only for tools that demand a file path — see §How-to-use below.
+3. **Don't present `get` as a parallel option to `run` in user-facing messages.** When you tell the owner "to do X, here's the command", give the single correct command (almost always `secret run ... -- ...`). Offering both implies the broker is optional, which contradicts why the owner installed it.
+4. **On user cancellation (exit code 2), stop and escalate to the user via chat.** Don't retry the dialog; the owner just told you "no". Explain what you needed and ask how to proceed.
 
 ## When to request
 
@@ -31,35 +32,44 @@ The owner sees a native dialog with the name + why. They type the value (or canc
 
 ## How to use a stored secret
 
-### Preferred: `secret run` (env injection)
+### `secret run` covers (almost) every case
 
 ```bash
+# tool reads from env
 secret run CLOUDFLARE_API_TOKEN -- wrangler deploy
-```
 
-The secret is injected into the spawned process's environment only. It never appears on disk, stdout, argv, or your chat context. Use this for every tool that accepts the credential via env var.
+# tool reads from stdin
+secret run API_KEY -- sh -c 'printf "%s" "$API_KEY" | wrangler secret put API_KEY'
 
-Multiple secrets at once:
+# tool reads from an HTTP header
+secret run GH_TOKEN -- sh -c 'curl -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/user'
 
-```bash
+# multiple secrets at once
 secret run LINE_CHANNEL_ACCESS_TOKEN,LINE_CHANNEL_SECRET -- node ./scripts/push.mjs
+
+# owner needs the value in their clipboard (for a browser form login etc.)
+secret run API_KEY -- sh -c 'printf "%s" "$API_KEY" | pbcopy'
 ```
 
-### Fallback: `secret get` (only when env injection is impossible)
+In every case above the value lives only in the spawned child's process memory. It never appears on disk, stdout, argv, or chat context. **This is the path. Use it.**
 
-Some tools insist on a credentials file (e.g. `gcloud auth activate-service-account --key-file=...`). Use `secret get` to materialise a mode-0600 file and pass its path to the tool:
+### `secret get` — file-based fallback (rare)
+
+There is exactly one situation where `run` doesn't work: a tool that *demands* a path to a file on disk and refuses to read from env or stdin. Example: `gcloud auth activate-service-account --key-file=<path>`.
 
 ```bash
 KEY_FILE=$(secret get GCP_SERVICE_ACCOUNT)
 gcloud auth activate-service-account --key-file="$KEY_FILE"
-rm -f "$KEY_FILE"   # delete immediately after use; the janitor sweeps abandoned ones after 5 min but explicit is better
+rm -f "$KEY_FILE"   # delete immediately; janitor sweeps abandoned files after 5 min
 ```
 
-**Never read the file with `cat`, `head`, `tail` or print its contents.** You read it only by passing the path to the tool that needs it.
+**Never read the file with `cat`, `head`, `tail`, or any other command that prints its contents.** You read it only by passing the path to the tool that demands it.
+
+Before reaching for `get`, ask yourself: "can this tool be invoked differently — env var, stdin pipe, HTTP header — so `run` works?" If yes, use `run`. `get` is only for tools that have no other option.
 
 ## Forbidden patterns
 
-These are silent leaks. If you find yourself reaching for any of them, stop:
+These are silent leaks or discipline breaches. If you find yourself reaching for any of them, stop:
 
 - ❌ `echo $CLOUDFLARE_API_TOKEN`
 - ❌ `cat $(secret get FOO)` or `head ...` or `tail ...`
@@ -67,6 +77,8 @@ These are silent leaks. If you find yourself reaching for any of them, stop:
 - ❌ Including the value (even partially) in a commit, a PR description, an issue, or chat output.
 - ❌ Asking the user "paste the token here" in chat.
 - ❌ Using `secret get` when `secret run` would work — env injection beats file-based delivery.
+- ❌ Telling the owner "you can do X via `secret get` or via `secret run -- pbcopy`" — offering parallel options. The broker has one default path (`run`); recommend that one and only that one.
+- ❌ Mentioning a non-broker workflow (raw `wrangler secret put`, `.env.local`, manual paste) as an "alternative". The broker IS the workflow. Suggesting bypasses signals it's optional, which it isn't on this machine.
 
 ## When the dialog is cancelled
 
